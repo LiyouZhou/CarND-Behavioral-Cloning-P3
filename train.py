@@ -1,13 +1,11 @@
 #!/usr/bin/env python
-
-import csv, cv2
+import csv, cv2, pickle
 import numpy as np
 from os import path
 from keras.models import Sequential
 from keras.layers import Flatten, Dense, Lambda, Activation, Dropout, Cropping2D
 from keras.layers.convolutional import Convolution2D
 from keras.layers.pooling import MaxPooling2D
-import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle
 
@@ -36,7 +34,7 @@ def data_generator(samples, batch_size=32):
             y_train = np.array(angles)
             yield shuffle(X_train, y_train)
 
-def main(data_paths, output_fn, correction, nb_epoch, base_model):
+def main(data_paths, output_fn, correction, nb_epoch, base_model, save_hist):
     # prepare data
     samples = []
     for data_path in data_paths:
@@ -62,6 +60,7 @@ def main(data_paths, output_fn, correction, nb_epoch, base_model):
     validation_generator = data_generator(validation_samples, batch_size=32)
 
     # define model
+    dropput_rate = 0.5
     model = Sequential()
     model.add(Cropping2D(cropping=((50,20), (0,0)), input_shape=(160, 320, 3)))
     model.add(Lambda(lambda x: x/255.0 - 0.5))
@@ -74,14 +73,16 @@ def main(data_paths, output_fn, correction, nb_epoch, base_model):
     model.add(Convolution2D(64, 3, 3, activation="relu"))
     model.add(Convolution2D(64, 3, 3, activation="relu"))
     model.add(Flatten())
-    model.add(Dense(1164))
     model.add(Dense(100))
+    model.add(Dropout(dropput_rate))
     model.add(Dense(50))
+    model.add(Dropout(dropput_rate))
     model.add(Dense(10))
     model.add(Dense(1))
 
     # train model
     model.compile(loss="mse", optimizer="adam")
+    model.summary()
 
     # load a already trained model if specified
     if base_model:
@@ -96,17 +97,10 @@ def main(data_paths, output_fn, correction, nb_epoch, base_model):
     # save output
     model.save(output_fn)
 
-    # print the keys contained in the history object
-    print(history_object.history.keys())
-
-    # plot the training and validation loss for each epoch
-    plt.plot(history_object.history['loss'])
-    plt.plot(history_object.history['val_loss'])
-    plt.title('model mean squared error loss')
-    plt.ylabel('mean squared error loss')
-    plt.xlabel('epoch')
-    plt.legend(['training set', 'validation set'], loc='upper right')
-    plt.imsave("training_losses.png")
+    # save the training history to file
+    if save_hist:
+        with open(output_fn.split(".")[0] + "_traing_hist.p", 'wb') as file_pi:
+            pickle.dump(history_object.history, file_pi)
 
 if __name__ == '__main__':
     import argparse
@@ -124,6 +118,8 @@ if __name__ == '__main__':
         help="number of epoch", default=3)
     parser.add_argument("-c", "--correction", type=float, default=0.2,
         help="correction to the middle")
+    parser.add_argument("-s", "--save-history", action="store_true", default=False,
+        help="File where to save the training history")
     args = parser.parse_args()
 
     print(args)
@@ -137,4 +133,5 @@ if __name__ == '__main__':
          output_fn  = args.output,
          correction = args.correction,
          nb_epoch   = args.nb_epoch,
-         base_model = args.base_model)
+         base_model = args.base_model,
+         save_hist  = args.save_history)
