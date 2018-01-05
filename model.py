@@ -19,19 +19,28 @@ def data_generator(samples, batch_size=32):
             images = []
             angles = []
             for batch_sample in batch_samples:
+                # read image from file
                 img = cv2.imread(batch_sample[0])
+
+                # convert color space because training images are loaded
+                # in BGR colorspace using cv2 while drive.py load images in RGB
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+                # flip image left-right to generate more data
                 if batch_sample[1]:
                     img = np.fliplr(img)
 
+                # load steering angle
                 angle = float(batch_sample[2])
 
+                # Append data to list
                 images.append(img)
                 angles.append(angle)
 
-            # trim image to only see section with road
             X_train = np.array(images)
             y_train = np.array(angles)
+
+            # yeild this batch
             yield shuffle(X_train, y_train)
 
 def main(data_paths, output_fn, correction, nb_epoch, base_model, save_hist):
@@ -43,27 +52,33 @@ def main(data_paths, output_fn, correction, nb_epoch, base_model, save_hist):
             reader = csv.reader(csvfile)
             for line in reader:
                 for i, img_fn in enumerate(line[:3]):
+                    # construct the file path of the image
                     img_fn = path.basename(img_fn)
                     img_fn = path.join(data_path, "IMG", img_fn)
 
+                    # use the left and right image here by applying correction to the
+                    # steering angle
                     measurement = float(line[3])
                     if   ('left' in img_fn): measurement += correction
                     elif ('right' in img_fn): measurement -= correction
 
-                    # path to image, flipped?, steering angle
+                    # data format: (path to image, flipped?, steering angle)
                     samples.append((img_fn, False, measurement))
                     samples.append((img_fn, True, -measurement))
 
+    # split data set into training and validation
     train_samples, validation_samples = train_test_split(samples, test_size=0.2)
 
+    # initialise the gnerators to be used in training
     train_generator = data_generator(train_samples, batch_size=32)
     validation_generator = data_generator(validation_samples, batch_size=32)
 
     # define model
     dropput_rate = 0.5
     model = Sequential()
+    # crop image to remove sky and car hood
     model.add(Cropping2D(cropping=((50,20), (0,0)), input_shape=(160, 320, 3)))
-    model.add(Lambda(lambda x: x/255.0 - 0.5))
+    model.add(Lambda(lambda x: x/255.0 - 0.5)) # Normalise input
     model.add(Convolution2D(24, 5, 5, activation="relu"))
     model.add(MaxPooling2D((2, 2)))
     model.add(Convolution2D(36, 5, 5, activation="relu"))
@@ -80,7 +95,6 @@ def main(data_paths, output_fn, correction, nb_epoch, base_model, save_hist):
     model.add(Dense(10))
     model.add(Dense(1))
 
-    # train model
     model.compile(loss="mse", optimizer="adam")
     model.summary()
 
@@ -88,6 +102,7 @@ def main(data_paths, output_fn, correction, nb_epoch, base_model, save_hist):
     if base_model:
         model.load_weights(base_model)
 
+    # train model
     history_object = model.fit_generator(train_generator,
                                          samples_per_epoch=len(train_samples),
                                          validation_data=validation_generator,
